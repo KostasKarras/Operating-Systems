@@ -109,8 +109,8 @@ int main(int argc, char *argv[]){
 
 	//lock screen to print the results
 	pthread_mutex_lock(&screen);
-	printf("The average completion order time is:%.2f λεπτά.\nThe maximum completion order time is:%.2f λεπτά\n",lepta,max);
-	printf("The average cold order time is:%.2f λεπτά.\nThe maximum cold order time is:%.2f λεπτά\n",lepta2,max2);
+	printf("The average completion order time is:%.2f λεπτά.\n The maximum completion order time is:%.2f λεπτά\n",lepta,max);
+	printf("The average cold order time is:%.2f λεπτά.\n The maximum cold order time is:%.2f λεπτά\n",lepta2,max2);
 
 	//unlock screen
 	pthread_mutex_unlock(&screen);
@@ -253,7 +253,7 @@ void *order(void *x){
 	timer2[id-1] = seconds2;
 
 	//we display the order served as well as the time it took (we use +0.5 for rounding eg 2.3 -> 2 (correct), 2.8 -> 2 (incorrect) | 2.3 + 0.5 = 2.8 -> 2 (correct), 2.8 + 0.5 = 3.3 -> 3 (correct))
-	printf("The order with number %d delivered into %d minutes and colds for %d minutes.\nDeliverer is coming back.\n",id,(int)(seconds + 0.5),(int)(seconds2 + 0.5));
+	printf("The order with number %d delivered into %d minutes and colds for %d minutes.\n Deliverer is coming back.\n",id,(int)(seconds + 0.5),(int)(seconds2 + 0.5));
 
 	//unlock mutex for screen
 	pthread_mutex_unlock(&screen);
