@@ -6,120 +6,204 @@
 #include <time.h>
 #include "p3180076-p3180154-pizza1.h"
 
-pthread_mutex_t lockcooker,lockoven,screen;//κάποια mutexes που θα χρησιμοποιήσουμε στη συνέχεια
-pthread_cond_t ovens,cookers;//2 condition variables που θα χρειαστούμε για να κάνουμε wait και signal στην order
+//mutexes
+pthread_mutex_t lockcooker,lockoven,screen;
 
-int numberOfCook = Ncook;//αρχικοποιούμε μία global μεταβλητή ώστε να ξέρουμε το ακριβή αριθμό των μαγείρων
-int numberOfOven = Noven;//----------------------------------//---------------------------------των φόυρνων
-unsigned int seed;//αυτή είναι η μεταβλητή στην οποία εκχωρείται ο σπόρος
-double *timer;//δείκτης που θα χρησιμοποιηθεί παρακάτω για την δημιουργία δυναμικού πίνακα ώστε να αποθηκεύονται οι χρόνοι
-double sum,max = 0;//μεταβλητές ώστε να βγουν τα συνολικά αποτελέσματα μέσου και μεγίστου χρόνου
+//2 condition variables that we wil use to make wait και signal into order function
+pthread_cond_t ovens,cookers;
+
+//initialization numberOfCook and numberOfOven to know everytime how many exactly cookers and ovens are available
+int numberOfCook = Ncook;
+int numberOfOven = Noven;
+
+unsigned int seed;
+
+//pointer that will be used below to create a dynamic table to save the times
+double *timer;
+
+//variables to get summary results of average and maximum time
+double sum,max = 0;
 
 int main(int argc, char *argv[]){
+	
 	if(argc != 3){
-		printf("Λάθος! Θα πρέπει να δώσετε τον αριθμό των πελατών ΚΑΙ το σπόρο για την παραγωγή των τυχαίων αριθμών.\n");
+		printf("WRONG! You have to give the number of customers AND the seed to generate random numbers.\n");
 		exit(-1);
-	}//ελέγχουμε εάν τα ορίσματα είναι ακριβώς 3(->ονομα αρχείου ->αριθμός πελατών ->σπόρος) και αν δεν είναι τότε σταμματάει το πρόγραμμα
+	}//check if the arguments are exactly 3(->file name -> number of customers -> seed) and if the are not 3, then the program exits.
 
-	int Ncust = atoi(argv[1]);//το Ncust έχει πλέον τον αριθμό πελατών
+	//Number of customers
+	int Ncust = atoi(argv[1]);
 
 	if(Ncust <= 0){
-		printf("Λάθος! Ο αριθμός των πελατών πρέπει να είναι θετικός ακέραιος.\n");
+		printf("WRONG! Number of customers must be positive integer.\n");
 		exit(-1);
-	}//εάν ο αριθμός πελατών είναι μικρότερος ή ίσος του 0 τότε βγάζει σφάλμα και σταμματάει το πρόγραμμα
+	}//if number of customers is smaller or equal than zero then we print a message and the program exits
 
-	seed = atoi(argv[2]);//το seed περιέχει την τιμή του σπόρου
-	unsigned int seed1 = seed;//αντιγράφουμε το seed σε τοπική μεταβλητή προκειμενου να μη χρησιμοποιήσουμε mutex 
+	seed = atoi(argv[2]);
+	unsigned int seed1 = seed;
 
-	pthread_t threads[Ncust];//πίνακας τύπου thread όσος και ο αριθμός των πελατών
-	pthread_mutex_init(&lockcooker,NULL);//initialization των αντίστοιχων mutexes
-	pthread_mutex_init(&lockoven,NULL);//----------------//----------------------
-	pthread_mutex_init(&screen,NULL);//------------------//----------------------
-	pthread_cond_init(&ovens,NULL);//--------------------//---------του condition
-	pthread_cond_init(&cookers,NULL);//------------------//----------------------
+	//thread array with size equal to number of customers
+	pthread_t threads[Ncust];
 
-	int id[Ncust];//πίνακας μεγέθους όσος και ο αριθμός πελατών προκειμένου να αντιλαμβάνομαστε κατά την εκτέλεση την σειρά των παραγγελιών και να το περνάμε σαν όρισμα στο αντίστοιχο thread(πιο κάτω μέσα στο for)
-	timer = malloc(Ncust*sizeof(double));//ορισμός μεγέθους του δυναμικού πίνακα για τους αντίστοιχους χρόνους
+	//initialization of mutexes and condition variables
+	pthread_mutex_init(&lockcooker,NULL);
+	pthread_mutex_init(&lockoven,NULL);
+	pthread_mutex_init(&screen,NULL);
+	pthread_cond_init(&ovens,NULL);
+	pthread_cond_init(&cookers,NULL);
+
+	//int array with size equal to number of customers, in order to understand, when program is running, the hierarchy of the orders and pass it as an argument in the corresponding thread
+	int id[Ncust];
+	
+	//dynamic array with the corresponding times
+	timer = malloc(Ncust*sizeof(double));
 
 	for(int i = 0;i < Ncust;i++){
-		if(i != 0){//η 1η έρχεται τη χρονική στιγμή 0 οπότε δεν χρειάζεται να περιμένει
-			sleep(rand_r(&seed1) % Torderhigh + Torderlow);//το βάζουμε για ύπνο από 1-5 δευτερόλεπτα(Torderhigh = 5, Torderlow = 1 ==> random % Torderhigh + Torderlow = [1,5])
+		
+		//first order is coming at the zero time, so it is no need to wait
+		if(i != 0){
+			
+			//sleep for 1-5 seconds (Torderhigh = 5, Torderlow = 1 ==> random % Torderhigh + Torderlow = [1,5])
+			sleep(rand_r(&seed1) % Torderhigh + Torderlow);
 		}
-		timer[i] = 0;//αρχικοποίηση του πίνακα των χρόνων με 0(μπορούσε να γίνει και με calloc πιο πάνω)
-		id[i] = i+1;//αρχικοποίηση του πίνακα id με αριθμό i+1 ώστε να ξεκινάει ο αριθμός παραγγελιών από 1 και όχι από 0
-		printf("Έγινε η παραλαβή της παραγγελίας: %d\n",i+1);//μήνυμα προς το χρήστη
-		pthread_create(&threads[i],NULL,order,&id[i]);//δημιουργία των threads με ορίσματα το αντίστοιχο πεδίο του πίνακα των threads, κανένα attribute, τη συνάρτηση order και το id[i] για debugging
+		
+		timer[i] = 0;
+		
+		//initialization of the id array with number = i + 1, so the number of the orders starts from 1 and no from 0
+		id[i] = i+1;
+		printf("Received the order: %d\n",i+1);
+		
+		//create threads with arguments to the corresponding field in the thread table, no attributes, the order function and id [i] for debugging
+		pthread_create(&threads[i],NULL,order,&id[i]);
 	}
 
 	for (int i = 0;i < Ncust;i++){
-		pthread_join(threads[i],NULL);//περιμένουμε να τερματίσουν τα νήματα
+		
+		//wait until threads are done
+		pthread_join(threads[i],NULL);
 	}
 
+	//This for loop is used to get summary results
 	for (int i = 0;i < Ncust;i++){
 		sum += timer[i];
 		if(max < timer[i])
 			max = timer[i];
-	}//χρησιμοποιείται για να βγουν τα συγκεντρωτικά αποτελέσματα
-	
-	double lepta = (sum / Ncust);//μέσος χρόνος ανά παραγγελία
-	
-	pthread_mutex_lock(&screen);//κλείδωμα της οθόνης για εμφάνιση των αποτελεσμάτων
-	printf("Ο μέσος χρόνος ολοκλήρωσης των παραγγελιών ειναι:%.2f λεπτά.\nΟ μέγιστος χρόνος ολοκλήρωσης των παραγγελιών ειναι:%.2f λεπτά\n",lepta,max);//Εμφανίζουμε τα αντίστοιχα μηνύματα για τον μέσο και μέγιστο χρόνο ολοκλήρωσης των παραγγελιών
-	pthread_mutex_unlock(&screen);//ξεκλείδωμα της οθόνης
+	}
 
-	free(timer);//απελευθερώνουμε  τον χώρο που έχουμε κρατήσει για τον δυναμικό πίνακα
-	pthread_mutex_destroy(&lockcooker);//καταστρέφουμε το mutex που έχουμε δημιουργήσει
-	pthread_mutex_destroy(&lockoven);//---------------------//-------------------------
-	pthread_mutex_destroy(&screen);//-----------------------//-------------------------
-	pthread_cond_destroy(&ovens);//-----------//--------το condition--------//---------
-	pthread_cond_destroy(&cookers);//---------//--------το condition--------//---------
-	return 0;//προκειμένου να τερματίσει το πρόγραμμα
+	//orders average completion time
+	double lepta = (sum / Ncust);
+
+	//lock screen to print the results
+	pthread_mutex_lock(&screen);
+	printf("The average completion order time is:%.2f λεπτά.\nThe maximum completion order time is:%.2f λεπτά\n",lepta,max);
+
+	//unlock screen
+	pthread_mutex_unlock(&screen);
+
+	//release the used space
+	free(timer);
+
+	//destroy mutexes and condition variables
+	pthread_mutex_destroy(&lockcooker);
+	pthread_mutex_destroy(&lockoven);
+	pthread_mutex_destroy(&screen);
+	pthread_cond_destroy(&ovens);
+	pthread_cond_destroy(&cookers);
+
+	return 0;
 }
 
 void *order(void *x){
-	struct timespec start,finish;//2 αντικείμενα της δομής timespec ώστε να παίρνουμε τον χρόνο στην αρχή και το τέλος της παραγγελίας
-	int id = *(int*)x;//ο εκάστοτε αριθμός παραγγελίας
-	unsigned int seed2 = seed + id;//αντιγράφουμε το seed σε τοπική μεταβλητή προκειμένου να μη χρησιμοποιήσουμε mutex και προσθέτουμε το id για μεγαλύτερη τυχαιότητα
+	
+	//we take the time at the beginning and the end of the order
+	struct timespec start,finish;
 
-	pthread_mutex_lock(&lockcooker);//κλειδώνουμε το mutex για τους μάγειρες
-	clock_gettime(CLOCK_REALTIME,&start);//ξεκινάμε να μετράμε τον χρόνο της παραγγελίας(βασικά παίρνουμε την χρονικη στιγμή του ρολογιού)
+	//the respective order number
+	int id = *(int*)x;
+
+	//copy the seed to a local variable in order not to use mutex and add the id for greater randomness
+	unsigned int seed2 = seed + id;
+
+	//lock mutex for cookers
+	pthread_mutex_lock(&lockcooker);
+	
+	//we start counting the time of the order (basically we take the time of the clock)
+	clock_gettime(CLOCK_REALTIME,&start);
+
+	//as long as no cooker is available it displays a message that it has not found cooker and is waiting
 	while (numberOfCook == 0){
-		printf("Η παραγγελία %d δεν βρήκε παρασκευαστή! Είναι μπλοκαρισμένη...\n",id);
+		printf("The order %d doesn't found manufacturer! She is blocked ...\n",id);
 		pthread_cond_wait(&cookers,&lockcooker);
-	}//όσο κανένας μάγειρας δεν είναι διαθέσιμος εμφανίζει μήνυμα ότι δεν βρήκε παρασκευαστή και περιμένει  
-	//printf("Η παραγγελία %d εξυπηρετείται.\n",id);//όταν βγει από το while σημαίνει ότι απελευθερώθηκε ένας μάγειρας και άρα η παραγγελία εξυπηρετείται
-	numberOfCook--;//μειώνουμε την global μεταβλητή που μετράει τον αριθμό των μαγείρων
-	pthread_mutex_unlock(&lockcooker);//ξεκλειδώνουμε το mutex
+	}
 
-	sleep((rand_r(&seed2) % Norderhigh + Norderlow) * Tprep);//το βάζουμε "για ύπνο" μέχρι να ετοιμαστεί (να γίνει δηλαδή η προετοιμασία πριν μπουν στο φούρνο)(random % 5 + 1)
+	//reduce the global variable that counts the number of cooks
+	numberOfCook--;
 
-	pthread_mutex_lock(&lockoven);//κλειδώνουμε το mutex για το φούρνο
+	//unlock mutex
+	pthread_mutex_unlock(&lockcooker);
+
+	//sleep until it is ready (that is, to prepare before they are put in the oven) (random% 5 + 1)
+	sleep((rand_r(&seed2) % Norderhigh + Norderlow) * Tprep);
+
+	//lock mutex for the oven
+	pthread_mutex_lock(&lockoven);
+
+	//while no oven is available displays a message that it did not find an oven available and is waiting
 	while (numberOfOven == 0){
-		printf("Ο παρασκευαστής περιμένει να απελευθερωθεί ένας φούρνος. Οπότε η παραγγελία %d είναι έμμεσα μπλοκαρισμένη...\n",id);
+		printf("The manufacturer is waiting for an oven to be released. So order %d is indirectly blocked ...\n",id);
 		pthread_cond_wait(&ovens,&lockoven);
-	}//όσο κανένας φούρνος δεν είναι διαθέσιμος εμφανίζει μήνυμα ότι δεν βρήκε διαθέσιμο φούρνο και περιμένει 
-	//printf("Η παραγγελία %d μπαίνει στο φούρνο.\n",id);//όταν βγει από το while σημαίνει ότι απελευθερώθηκε ένας φούρνος και άρα η παραγγελία μπαίνει στο φούρνο
-	numberOfOven--;//μειώνουμε την global μεταβλητή που μετράει τον αριθμό των φούρνων
-	pthread_mutex_unlock(&lockoven);//ξεκλειδώνουμε το mutex για τους φούρνους
+	}
 
-	sleep(Tbake);//το βάζουμε "για ύπνο" μέχρι να ετοιμαστεί (να ψηθούν δηλαδή οι πίτσες)
+	//we reduce the global variable that counts the number of ovens
+	numberOfOven--;
 
-	pthread_mutex_lock(&lockcooker);//κλειδώνουμε το mutex για τους μάγειρες
-	numberOfCook++;//αυξάνουμε τον αριθμό των μαγείρων αφού έχει τελειώσει και το ψήσιμο
-	pthread_cond_signal(&cookers);//κάνουμε signal προκειμένου μία παραγγελία που είναι μπλοκαρισμένη και περιμένει μάγειρα να αρχίσει
-	pthread_mutex_unlock(&lockcooker);//ξεκλειδώνουμε το mutex
+	//unlock mutex for the ovens
+	pthread_mutex_unlock(&lockoven);
 
-	pthread_mutex_lock(&lockoven);//κλειδώνουμε το mutex για τους φούρνους 
-	numberOfOven++;//αυξάνουμε τον αριθμό των φούρνων
-	pthread_cond_signal(&ovens);//κανουμε signal προκειμένου μία παραγγελία που είναι μπλοκαρισμένη και περιμένει φούρνο να αρχίσει 
-	pthread_mutex_unlock(&lockoven);//ξεκλειδώνουμε το mutex  
+	sleep(Tbake);//sleep until it is ready (that is, to bake the pizzas)
 
-	pthread_mutex_lock(&screen);//κλειδώνουμε το mutex για την οθόνη 
-	clock_gettime(CLOCK_REALTIME,&finish);//σταμματάμε να μετράμε τον χρόνο της παραγγελίας(βασικά παίρνουμε την χρονικη στιγμή του ρολογιού)
-	double seconds = finish.tv_sec - start.tv_sec;//αφαιρούμε τις 2 χρονικές στιγμές και βρίσκουμε τον συνολικό χρόνο ολοκλήρωσης της παραγγελίας
-	timer[id-1] = seconds;//εκχωρούμε τον χρόνο αυτό στον πίνακα timer με index id-1 διότι στη main συνάρτηση περνούσαμε σαν όρισμα το id+1
-	printf("Η παραγγελία με αριθμό %d ετοιμάστηκε σε %d λεπτά.\n",id,(int)(seconds + 0.5));//εμφανίζουμε τη παραγγελία που εξυπηρετήθηκε καθώς και το χρόνο που χρειάστηκε(χρησιμοποιούμε το +0.5 για στρογγυλοποίηση πχ 2.3 -> 2(σωστό),2.8 -> 2(λάθος)|2.3+0.5=2.8 -> 2(σωστό),2.8+0.5=3.3 -> 3(σωστό))
-	pthread_mutex_unlock(&screen);//ξεκλειδώνουμε το mutex για την οθόνη
+	//lock mutex for the cookers
+	pthread_mutex_lock(&lockcooker);
 
-	pthread_exit(NULL);//βγαίνουμε από το thread(δεν επιστρέφουμε κάτι στην main)
+	//increase the number of cooks after the baking is over
+	numberOfCook++;
+
+	//we signal to an order which is blocked and waiting for a cooker to start her
+	pthread_cond_signal(&cookers);
+
+	//unlock mutex
+	pthread_mutex_unlock(&lockcooker);
+
+	//lock mutex for the ovens
+	pthread_mutex_lock(&lockoven);
+
+	//increase number of cookers
+	numberOfOven++;
+
+	//we signal to an order which is blocked and waiting for an oven to bake her
+	pthread_cond_signal(&ovens);
+
+	//unlock mutex
+	pthread_mutex_unlock(&lockoven);
+
+	//lock mutex for screen
+	pthread_mutex_lock(&screen);
+
+	//we stop counting the time of the order (basically we take the time of the clock)
+	clock_gettime(CLOCK_REALTIME,&finish);
+
+	//total order completion time
+	double seconds = finish.tv_sec - start.tv_sec;
+
+	//we assign this time to the timer table with index id-1 because in the main function we passed id + 1 as an argument
+	timer[id-1] = seconds;
+
+	//we display the order served as well as the time it took (we use +0.5 for rounding eg 2.3 -> 2 (correct), 2.8 -> 2 (incorrect) | 2.3 + 0.5 = 2.8 -> 2 (correct), 2.8 + 0.5 = 3.3 -> 3 (correct))
+	printf("The order with number %d prepared in %d minutes.\n",id,(int)(seconds + 0.5));
+
+	//unlock mutex for screen
+	pthread_mutex_unlock(&screen);
+
+	//we leave the thread (we do not return anything to main)
+	pthread_exit(NULL);
 }
